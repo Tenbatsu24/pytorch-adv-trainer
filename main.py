@@ -28,21 +28,26 @@ train_loader = torch.utils.data.DataLoader(training_set, batch_size=batch_size, 
 testing_set = FashionMNIST(os.path.join('.', 'datas'), train=False, download=True, transform=load_transform)
 test_loader = torch.utils.data.DataLoader(testing_set, batch_size=batch_size, shuffle=True)
 
-net = torchvision.models.efficientnet_b0(pretrained=False, num_classes=10)
-optim = torch.optim.Adam(net.parameters(), 0.03)
-crit = nn.CrossEntropyLoss()
 
-model_names = ['eff0_fm_none', 'eff0_adv_fm_none']
+model_method = torchvision.models.resnet18
+model_names = {
+    'rn18_fm_none': {'adv_training': False},
+    'rn18_adv_fm_none': {'adv_training': True}
+}
 
-for model_name in model_names:
+for (model_name, args) in model_names.items():
+
+    net = model_method(pretrained=False, num_classes=10)
+
     path_for_trained_model = os.path.join('.', 'models', f'{model_name}.pth')
 
     train = False
     if train:
-        train_suit(model=net, num_epochs=10, training_data_loader=train_loader, data_augmentation=one_to_three,
+        optim = torch.optim.Adam(net.parameters(), 0.03)
+        crit = nn.CrossEntropyLoss()
+        train_suit(model=net, num_epochs=5, training_data_loader=train_loader, data_augmentation=one_to_three,
                    optimiser=optim, criterion=crit, use_cuda=True, save_model=True, path_to_file=path_for_trained_model,
-                   adv_training=False,
-                   testing_data_loader=test_loader, testing_length=len(testing_set), test_aug=one_to_three
+                   testing_data_loader=test_loader, testing_length=len(testing_set), test_aug=one_to_three, **args
                    )
 
     test_robust = True
