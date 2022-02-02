@@ -1,10 +1,12 @@
 import random
+from fractions import Fraction
 
 import torch
-from torchattacks import FGSM, RFGSM, MIFGSM
+from torchattacks import FGSM, RFGSM, MIFGSM, PGD
 
 
 def identity(woof, *args, **kwargs):
+    __name__ = 'identity'
     return woof
 
 
@@ -28,23 +30,25 @@ def epoch_train(model, training_data_loader, data_augmentation, optimiser, crite
                 identity,
                 RFGSM(adv_model),
                 identity,
-                identity
+                identity,
+                PGD(adv_model),
+                identity,
+                identity,
             ])
         else:
-            attack = identity
+            attack = None
 
         x_input, y_target = x_input.to(training_device), y_target.to(training_device)
         x_input = data_augmentation(x_input)
 
         optimiser.zero_grad()
 
-        y_pred = model(x_input)
-        loss = criterion(y_pred, y_target)
-
-        if adv_training and attack is not None:
+        if adv_training:
             x_adv = attack(x_input, y_target)
-            adv_loss = criterion(model(x_adv), y_target)
-            loss = 0.1 * adv_loss + 0.9 * loss
+            y_pred = model(x_adv)
+        else:
+            y_pred = model(x_input)
+        loss = criterion(y_pred, y_target)
 
         loss.backward()
         optimiser.step()
@@ -54,7 +58,10 @@ def epoch_train(model, training_data_loader, data_augmentation, optimiser, crite
             y_pred_max = torch.argmax(y_pred, dim=1)  # Get the labels with the highest output probability
             correct = torch.sum(torch.eq(y_pred_max, y_target)).item()  # Count how many are equal to the true labels
 
-            print(f'b-{i}, train accuracy: {correct / len(x_input):.3f}-loss: {loss}. attack: {type(attack).__name__}')
+            print(f'b-{i}'.ljust(10),
+                  f'train accuracy: {correct / len(x_input)}'.ljust(30),
+                  f'loss: {loss:.4f}'.ljust(15),
+                  f'attack: {type(attack).__name__}'.ljust(20))
 
 
 def train_suit(model, num_epochs, training_data_loader, data_augmentation, optimiser, criterion,
@@ -99,7 +106,7 @@ def train_suit(model, num_epochs, training_data_loader, data_augmentation, optim
             with torch.no_grad():
                 correct_total = 0
 
-                for i, (x_batch, y_batch) in enumerate(testing_data_loader):
+                for x_batch, y_batch in testing_data_loader:
                     x_batch, y_batch = x_batch.to(device), y_batch.to(device)
                     x_batch = test_aug(x_batch)
 
@@ -137,20 +144,23 @@ def robust_test_suit(model, path_to_file, testing_data_loader, testing_length, t
     model = model.to(device)
 
     try:
-        (model_dict, _, _) = torch.load(path_to_file, device)
+        (model_dict, _, clean_acc) = torch.load(path_to_file, device)
         model.load_state_dict(model_dict)
         print('Old Model State Loaded!')
+        print(path_to_file)
     except (FileNotFoundError, IOError) as e:
         print('Saved model not found!')
         raise ModuleNotFoundError
 
-    correct_total = 0
     model.eval()
 
     if not attacks:
-        attacks = [MIFGSM(model), FGSM(model), RFGSM(model)]
+        attacks = [MIFGSM(model), FGSM(model), PGD(model)]
 
+    print(f'Accuracy on clean test set: {clean_acc}')
     for attack in attacks:
+        correct_total = 0
+
         attack_name = type(attack).__name__
         print(f'Performing Attack: {attack_name}')
         for i, (x_batch, y_batch) in enumerate(testing_data_loader):
@@ -165,4 +175,6 @@ def robust_test_suit(model, path_to_file, testing_data_loader, testing_length, t
             correct_total += torch.sum(torch.eq(y_pred_max, y_batch)).item()
 
         accuracy = correct_total / testing_length
-        print(f'{attack_name}:ep:{attack.eps} Accuracy on the test set: {accuracy}')
+        print(f'{attack_name}'.ljust(10),
+              f'ep:{Fraction(attack.eps).limit_denominator()}'.ljust(15),
+              f'Accuracy on the test set: {accuracy:.4f}'.ljust(40))
