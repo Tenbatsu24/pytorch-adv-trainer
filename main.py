@@ -1,3 +1,5 @@
+from random import random
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -28,11 +30,36 @@ train_loader = torch.utils.data.DataLoader(training_set, batch_size=batch_size, 
 testing_set = FashionMNIST(os.path.join('.', 'datas'), train=False, download=True, transform=load_transform)
 test_loader = torch.utils.data.DataLoader(testing_set, batch_size=batch_size, shuffle=True)
 
-
 model_method = torchvision.models.resnet18
 model_names = {
-    'rn18_fm_none': {'adv_training': False},
-    'rn18_adv_fm_none': {'adv_training': True}
+    # 'rn18_fm_noise':
+    #     {'adv_training': False,
+    #      'data_augmentation': transforms.Compose([
+    #          transforms.RandomHorizontalFlip(),
+    #          transforms.RandomErasing(),
+    #          transforms.RandomApply(
+    #              [transforms.Lambda(
+    #                  lambda __ims: torch.clamp(
+    #                      __ims + (0.2 * random()) * torch.randn_like(__ims, device=__ims.device),
+    #                      0, 1)
+    #              )]
+    #          ),
+    #          one_to_three
+    #      ])},
+    'rn18_adv_ep_scaling3_fm_noise':
+        {'adv_training': True,
+         'data_augmentation': transforms.Compose([
+             transforms.RandomHorizontalFlip(),
+             transforms.RandomErasing(),
+             transforms.RandomApply(
+                 [transforms.Lambda(
+                     lambda __ims: torch.clamp(
+                         __ims + (0.2 * random()) * torch.randn_like(__ims, device=__ims.device),
+                         0, 1)
+                 )]
+             ),
+             one_to_three
+         ])},
 }
 
 for (model_name, args) in model_names.items():
@@ -41,11 +68,11 @@ for (model_name, args) in model_names.items():
 
     path_for_trained_model = os.path.join('.', 'models', f'{model_name}.pth')
 
-    train = False
+    train = True
     if train:
         optim = torch.optim.Adam(net.parameters(), 0.03)
         crit = nn.CrossEntropyLoss()
-        train_suit(model=net, num_epochs=5, training_data_loader=train_loader, data_augmentation=one_to_three,
+        train_suit(model=net, num_epochs=5, training_data_loader=train_loader,
                    optimiser=optim, criterion=crit, use_cuda=True, save_model=True, path_to_file=path_for_trained_model,
                    testing_data_loader=test_loader, testing_length=len(testing_set), test_aug=one_to_three, **args
                    )
