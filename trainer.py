@@ -12,8 +12,14 @@ def identity(woof, *args, **kwargs):
 
 def epoch_train(model, training_data_loader, data_augmentation, optimiser, criterion, training_device,
                 adv_training, ensemble_list, u_ep, best_acc_seen):
-    epsilon_scaling = best_acc_seen
+
+    batches = len(training_data_loader)
+    ep_step = 1/batches
+    epsilon_scaling = 0
+
     for i, (x_input, y_target) in enumerate(training_data_loader):
+
+        epsilon_scaling += ep_step
 
         if adv_training:
             if ensemble_list:
@@ -21,11 +27,11 @@ def epoch_train(model, training_data_loader, data_augmentation, optimiser, crite
             else:
                 adv_model = model
             steps = 5
-            epsilon = epsilon_scaling * u_ep * random.random()
+            epsilon = epsilon_scaling * u_ep
             attack = random.choice([
                 MIFGSM(adv_model, epsilon, alpha=epsilon / (steps - 1), steps=steps), identity, identity,
-                FGSM(adv_model, epsilon), identity, identity,
-                RFGSM(adv_model, epsilon), identity, identity,
+                FGSM(adv_model, epsilon), identity,
+                RFGSM(adv_model, epsilon), identity,
                 PGD(adv_model, epsilon, alpha=epsilon / (steps - 1), steps=steps), identity, identity,
             ])
         else:
@@ -47,7 +53,12 @@ def epoch_train(model, training_data_loader, data_augmentation, optimiser, crite
         loss.backward()
         optimiser.step()
 
-        if not i % 25:
+        if not i % 50:
+
+            if 0.50 > random.random():
+                epsilon_scaling = 0
+                ep_step = 1 / (batches - i)
+
             # Compute relevant metrics
             y_pred_max = torch.argmax(y_pred, dim=1)  # Get the labels with the highest output probability
             correct = float(torch.sum(torch.eq(y_pred_max, y_target)).item())  # Count num equal to the true label
@@ -58,7 +69,6 @@ def epoch_train(model, training_data_loader, data_augmentation, optimiser, crite
             elif attack is None:
                 attack_name = 'None'
             else:
-                epsilon_scaling = train_acc
                 attack_name = f'{type(attack).__name__}-ep:{attack.eps}'
 
             print(f'b-{i}'.ljust(10),
